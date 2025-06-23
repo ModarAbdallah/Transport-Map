@@ -5,7 +5,6 @@ import axios from 'axios';
 import 'leaflet/dist/leaflet.css';
 import polyline from '@mapbox/polyline';
 
-
 const translations = {
   en: {
     title: "Transport Map",
@@ -17,6 +16,8 @@ const translations = {
     enableLocation: "Enable Location",
     bus: "Bus",
     taxi: "Taxi",
+    showRoute: "Show Route",
+    destinations: "Destinations"
   },
   ar: {
     title: "خريطة المواصلات",
@@ -28,6 +29,8 @@ const translations = {
     enableLocation: "تحديد الموقع",
     bus: "باص",
     taxi: "تكسي",
+    showRoute: "عرض الطريق",
+    destinations: "الوجهات"
   }
 };
 
@@ -65,14 +68,31 @@ export default function App() {
 
   const generateStations = (center) => {
     const radius = 1000;
-    const points = [];
+    const generatedStations = [];
+
     for (let i = 0; i < 3; i++) {
       const angle = Math.random() * Math.PI * 2;
       const dx = (Math.random() * radius) * Math.cos(angle) / 111320;
       const dy = (Math.random() * radius) * Math.sin(angle) / 111320;
-      points.push({ lat: center.lat + dy, lng: center.lng + dx });
+      const stationLoc = { lat: center.lat + dy, lng: center.lng + dx };
+
+      const destinations = [
+        {
+          name: "Place A",
+          lat: stationLoc.lat + 0.005,
+          lng: stationLoc.lng + 0.005
+        },
+        {
+          name: "Place B",
+          lat: stationLoc.lat + 0.01,
+          lng: stationLoc.lng + 0.01
+        }
+      ];
+
+      generatedStations.push({ ...stationLoc, destinations });
     }
-    setStations(points);
+
+    setStations(generatedStations);
   };
 
   const handleSearch = async () => {
@@ -93,31 +113,61 @@ export default function App() {
   };
 
   const drawRoute = async (from, to) => {
-  try {
-    const res = await axios.post("http://localhost:5000/route", {
-      coordinates: [
-        [from.lng, from.lat],
-        [to.lng, to.lat]
-      ]
-    });
+    try {
+      const res = await axios.post("http://localhost:5000/route", {
+  coordinates: [
+    [from.lng, from.lat],
+    [to.lng, to.lat]
+  ],
+  preference: "shortest",
+  profile: "driving-car", // أو "foot-walking" أو "cycling-regular" حسب وسيلة النقل
+  format: "geojson"
+});
 
-    const route = res.data.routes?.[0];
-    if (!route || !route.geometry) {
-      console.error("No route geometry found:", res.data);
-      alert("No route found.");
-      return;
+
+      const route = res.data.routes?.[0];
+      if (!route || !route.geometry) {
+        console.error("No route geometry found:", res.data);
+        alert("No route found.");
+        return;
+      }
+
+      const coords = polyline.decode(route.geometry).map(([lat, lng]) => [lat, lng]);
+      setRoute(coords);
+    } catch (error) {
+      console.error("Routing error:", error);
+      alert("Error fetching route");
     }
+  };
 
-    // فك تشفير المسار من polyline إلى مصفوفة إحداثيات
-    const coords = polyline.decode(route.geometry).map(([lat, lng]) => [lat, lng]);
-    setRoute(coords);
-  } catch (error) {
-    console.error("Routing error:", error);
-    alert("Error fetching route");
-  }
-};
+  const drawStationRoute = async (station) => {
+    const destList = station.destinations;
+    if (destList.length === 0) return;
 
+    const finalDest = destList[destList.length - 1];
 
+    try {
+      const res = await axios.post("http://localhost:5000/route", {
+        coordinates: [
+          [station.lng, station.lat],
+          [finalDest.lng, finalDest.lat]
+        ]
+      });
+
+      const routeData = res.data.routes?.[0];
+      if (!routeData || !routeData.geometry) {
+        console.error("No route geometry found:", res.data);
+        alert("No route found from station.");
+        return;
+      }
+
+      const coords = polyline.decode(routeData.geometry).map(([lat, lng]) => [lat, lng]);
+      setRoute(coords);
+    } catch (error) {
+      console.error("Routing error:", error);
+      alert("Error fetching station route");
+    }
+  };
 
   if (!online) {
     return <div style={offlineStyle}>{t.noInternet}</div>;
@@ -165,7 +215,7 @@ export default function App() {
         {stations.map((station, idx) => (
           <Marker
             key={idx}
-            position={station}
+            position={{ lat: station.lat, lng: station.lng }}
             icon={L.icon({
               iconUrl: transportMode === "Bus"
                 ? "https://maps.google.com/mapfiles/kml/shapes/bus.png"
@@ -173,7 +223,19 @@ export default function App() {
               iconSize: [30, 30],
               iconAnchor: [15, 30]
             })}
-          />
+          >
+            <Popup>
+              <div>
+                <strong>{t.destinations}:</strong>
+                <ul>
+                  {station.destinations.map((d, i) => (
+                    <li key={i}>{d.name}</li>
+                  ))}
+                </ul>
+                <button onClick={() => drawStationRoute(station)}>{t.showRoute}</button>
+              </div>
+            </Popup>
+          </Marker>
         ))}
         {route && <Polyline positions={route} color="blue" />}
       </MapContainer>
