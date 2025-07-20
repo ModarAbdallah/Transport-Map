@@ -1,27 +1,51 @@
 import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, Popup } from 'react-leaflet';
+import L from 'leaflet';
 import axios from 'axios';
-import 'leaflet/dist/leaflet.css';
 import polyline from '@mapbox/polyline';
+import 'leaflet/dist/leaflet.css';
 
-import translations from './translations';
-import { locateUser } from './utils';
-
-import RecenterMap from './components/RecenterMap';
 import Header from './components/Header';
 import SearchBar from './components/SearchBar';
-import StationMarker from './components/StationMarker';
+import RecenterMap from './components/RecenterMap';
+
+const translations = {
+  en: {
+    title: "Transport map",
+    search: "Search location...",
+    bus: "Bus",
+    taxi: "Taxi",
+    showRoute: "Show Route",
+    destinations: "Destinations",
+    noInternet: "You are offline",
+    noLocation: "Please enable location",
+    enableLocation: "Enable Location",
+  },
+  ar: {
+    title: "خريطة المواصلات",
+    search: "ابحث عن موقع...",
+    bus: "باص",
+    taxi: "تكسي",
+    showRoute: "عرض الطريق",
+    destinations: "الوجهات",
+    noInternet: "أنت غير متصل بالإنترنت",
+    noLocation: "يرجى تحديد الموقع",
+    enableLocation: "تحديد الموقع",
+  }
+};
 
 export default function App() {
   const [lang, setLang] = useState("en");
   const t = translations[lang];
   const [online, setOnline] = useState(navigator.onLine);
-  const [mapType, setMapType] = useState("roadmap");
   const [transportMode, setTransportMode] = useState("Bus");
+  const [mapMenuOpen, setMapMenuOpen] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
   const [destination, setDestination] = useState(null);
   const [stations, setStations] = useState([]);
   const [route, setRoute] = useState(null);
+  const [routePref, setRoutePref] = useState("shortest");
+  const [mapLayer, setMapLayer] = useState("streets");
 
   useEffect(() => {
     const updateOnlineStatus = () => setOnline(navigator.onLine);
@@ -32,6 +56,14 @@ export default function App() {
       window.removeEventListener("offline", updateOnlineStatus);
     };
   }, []);
+
+  const locateUser = () => {
+    navigator.geolocation.getCurrentPosition(pos => {
+      const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      setUserLocation(loc);
+      generateStations(loc);
+    }, () => alert("Location permission denied"), { enableHighAccuracy: true });
+  };
 
   const generateStations = () => {
     const fixedStations = [
@@ -69,10 +101,7 @@ export default function App() {
     const res = await axios.get(`https://nominatim.openstreetmap.org/search?format=json&q=${input}`);
     if (res.data.length > 0) {
       const loc = res.data[0];
-      const dest = {
-        lat: parseFloat(loc.lat),
-        lng: parseFloat(loc.lon),
-      };
+      const dest = { lat: parseFloat(loc.lat), lng: parseFloat(loc.lon) };
       setDestination(dest);
       drawRoute(userLocation, dest);
     } else {
@@ -84,7 +113,7 @@ export default function App() {
     try {
       const res = await axios.post("http://localhost:5000/route", {
         coordinates: [[from.lng, from.lat], [to.lng, to.lat]],
-        preference: "shortest",
+        preference: routePref,
         profile: "driving-car",
         format: "geojson"
       });
@@ -92,50 +121,97 @@ export default function App() {
       if (!route || !route.geometry) return alert("No route found.");
       const coords = polyline.decode(route.geometry).map(([lat, lng]) => [lat, lng]);
       setRoute(coords);
-    } catch (error) {
-      console.error("Routing error:", error);
+    } catch (err) {
       alert("Error fetching route");
     }
   };
 
   const drawStationRoute = async (station) => {
     const destList = station.destinations;
+    if (destList.length === 0) return;
     const finalDest = destList[destList.length - 1];
+
     try {
       const res = await axios.post("http://localhost:5000/route", {
-        coordinates: [[station.lng, station.lat], [finalDest.lng, finalDest.lat]]
+        coordinates: [[station.lng, station.lat], [finalDest.lng, finalDest.lat]],
+        preference: routePref,
+        profile: "driving-car",
+        format: "geojson"
       });
-      const routeData = res.data.routes?.[0];
-      if (!routeData || !routeData.geometry) return alert("No route found from station.");
-      const coords = polyline.decode(routeData.geometry).map(([lat, lng]) => [lat, lng]);
+      const route = res.data.routes?.[0];
+      if (!route || !route.geometry) return alert("No route found from station.");
+      const coords = polyline.decode(route.geometry).map(([lat, lng]) => [lat, lng]);
       setRoute(coords);
-    } catch (error) {
-      console.error("Routing error:", error);
+    } catch {
       alert("Error fetching station route");
     }
   };
 
-  if (!online) return <div style={offlineStyle}>{t.noInternet}</div>;
+  if (!online) {
+    return <div style={offlineStyle}>{t.noInternet}</div>;
+  }
+
   if (!userLocation) {
     return (
       <div style={offlineStyle}>
         <p>{t.noLocation}</p>
-        <button onClick={() => locateUser(setUserLocation, generateStations)}>{t.enableLocation}</button>
+        <button onClick={locateUser}>{t.enableLocation}</button>
       </div>
     );
   }
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", direction: lang === "ar" ? "rtl" : "ltr" }}>
-      <Header {...{ mapType, setMapType, transportMode, setTransportMode, lang, setLang, t }} />
-      <SearchBar {...{ t, handleSearch }} />
+      <Header
+        lang={lang}
+        setLang={setLang}
+        title={t.title}
+        routePref={routePref}
+        setRoutePref={setRoutePref}
+        mapLayer={mapLayer}
+        setMapLayer={setMapLayer}
+        mapMenuOpen={mapMenuOpen}
+        setMapMenuOpen={setMapMenuOpen}
+      />
+      <SearchBar t={t} handleSearch={handleSearch} />
+
       <MapContainer center={userLocation} zoom={15} style={{ flex: 1 }}>
         <RecenterMap location={userLocation} />
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <TileLayer
+          url={
+            mapLayer === "satellite"
+              ? "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+              : mapLayer === "terrain"
+              ? "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
+              : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          }
+        />
         <Marker position={userLocation}><Popup>Me</Popup></Marker>
         {destination && <Marker position={destination}><Popup>Destination</Popup></Marker>}
         {stations.map((station, idx) => (
-          <StationMarker key={idx} {...{ station, transportMode, t, drawStationRoute }} />
+          <Marker
+            key={idx}
+            position={{ lat: station.lat, lng: station.lng }}
+            icon={L.icon({
+              iconUrl: transportMode === "Bus"
+                ? "https://maps.google.com/mapfiles/kml/shapes/bus.png"
+                : "https://maps.google.com/mapfiles/kml/shapes/cabs.png",
+              iconSize: [30, 30],
+              iconAnchor: [15, 30]
+            })}
+          >
+            <Popup>
+              <div>
+                <strong>{t.destinations}:</strong>
+                <ul>
+                  {station.destinations.map((d, i) => (
+                    <li key={i}>{d.name}</li>
+                  ))}
+                </ul>
+                <button onClick={() => drawStationRoute(station)}>{t.showRoute}</button>
+              </div>
+            </Popup>
+          </Marker>
         ))}
         {route && <Polyline positions={route} color="blue" />}
       </MapContainer>

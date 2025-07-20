@@ -1,4 +1,3 @@
-// Header.jsx
 export default function Header({
   lang, setLang, title,
   routePref, setRoutePref,
@@ -14,33 +13,16 @@ export default function Header({
     setMapMenuOpen(false);
   };
 
-  const mapTypes = [
-    { type: "streets", icon: "🛣️", label: { en: "Road Map", ar: "خريطة طرق" } },
-    { type: "satellite", icon: "🛰️", label: { en: "Satellite", ar: "قمر صناعي" } },
-    { type: "terrain", icon: "🌄", label: { en: "Terrain", ar: "تضاريس" } }
-  ];
-
   return (
     <div style={styles.header}>
       <div style={styles.leftControls}>
         <div style={styles.dropdownContainer}>
           <button style={styles.mapIcon} onClick={toggleMapMenu}>🗺️</button>
           {mapMenuOpen && (
-            <div style={{
-              ...styles.dropdown,
-              textAlign: lang === "ar" ? "right" : "left",
-              right: lang === "ar" ? 0 : "auto",
-              left: lang === "ar" ? "auto" : 0
-            }}>
-              {mapTypes.map((item) => (
-                <div 
-                  key={item.type}
-                  onClick={() => handleSelectMapType(item.type)}
-                  style={styles.dropdownItem}
-                >
-                  {item.icon} {item.label[lang]}
-                </div>
-              ))}
+            <div style={styles.dropdown}>
+              <div onClick={() => handleSelectMapType("streets")}>🛣️ خريطة طرق</div>
+              <div onClick={() => handleSelectMapType("satellite")}>🛰️ قمر صناعي</div>
+              <div onClick={() => handleSelectMapType("terrain")}>🌄 تضاريس</div>
             </div>
           )}
         </div>
@@ -83,6 +65,7 @@ const styles = {
   dropdown: {
     position: "absolute",
     top: "35px",
+    left: 0,
     backgroundColor: "#fff",
     color: "#000",
     border: "1px solid #ccc",
@@ -93,13 +76,6 @@ const styles = {
     zIndex: 999,
     width: "150px",
     boxShadow: "0px 2px 8px rgba(0,0,0,0.2)"
-  },
-  dropdownItem: {
-    padding: "5px",
-    cursor: "pointer",
-    "&:hover": {
-      backgroundColor: "#f0f0f0"
-    }
   },
   title: {
     flex: 1,
